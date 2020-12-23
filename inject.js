@@ -41,8 +41,9 @@ stylization.innerHTML = `
     background: transparent;
     display: block;
     font-weight: bold;
+    color: #fff;
 }
-#watch-together-header p {
+#watch-together-header p, a {
     margin: 0;
     margin-bottom: 8px;
     font-size: 12px;
@@ -51,6 +52,7 @@ stylization.innerHTML = `
     background: transparent;
     display: block;
     font-weight: normal;
+    color: #fff;
 }
 #watch-together-settings button {
     margin-top: 4px;
