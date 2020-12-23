@@ -167,7 +167,6 @@ Object.defineProperty(HTMLMediaElement.prototype, "playing", {
 const settings = document.createElement("div");
 settings.id = "watch-together-settings";
 settings.innerHTML = `
-<img src="${remotecontrol}" id="remotecontrol"></img>
 <div id="watch-together-header">
     <h1>watch together</h1>
     <p>created with <3 by <a href="https://github.com/waymondrang">raymond wang</a></p>
