@@ -13,8 +13,12 @@
             ]
         }
     ],
+    "browser_action": {
+
+    },
     "web_accessible_resources": [
-        "inject.js"
+        "inject.js",
+        "socket.js"
     ],
     "permissions": [
         "storage"

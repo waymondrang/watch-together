@@ -14,7 +14,7 @@ console.log = function () {
 const uri = process.env.MONGO_URI;
 const express = require("express")
 const app = express();
-const port = process.env.PORT || 80; //USE PORT 5000, WHICH IS OPENED ON ROUTER
+const port = process.env.PORT || 80;
 const http = require("http");
 const socket = require("socket.io");
 const server = http.createServer(app);
@@ -50,9 +50,10 @@ io.on("connection", function (socket) {
     socket.on("join-room", async function (initial) {
         var room = initial.room;
         socket.join(room)
-        var results = await client.db("watchtogether").collection("rooms").findOne({ _id: room }, { projection: { connected: 1 } })
+        var results = await client.db("watchtogether").collection("rooms").findOne({ _id: room }, { projection: { connected: 1, url: 1 } })
         console.log(results)
         var connected = results ? results["connected"] : [];
+        var url = results ? results["url"] : "";
         if (!connected.length) {
             connected.push(socket.id)
             client.db("watchtogether").collection("rooms").updateOne({ _id: room }, { $set: { connected: connected, admin: socket.id } }, { upsert: true });
@@ -61,9 +62,17 @@ io.on("connection", function (socket) {
             connected.push(socket.id)
             client.db("watchtogether").collection("rooms").updateOne({ _id: room }, { $set: { connected: connected } }, { upsert: true })
         }
+        if (url) {
+            socket.emit("set-url", { url: url })
+        }
         console.log("user joined room", room)
         socket.emit("room-confirmed", { socketid: socket.id });
         io.sockets.in(room).emit('count-update', { count: connected.length })
+        socket.on("admin-set-url", function (data) {
+            var url = data["url"];
+            socket.to(room).broadcast.emit('set-url', { url: url });
+            client.db("watchtogether").collection("rooms").updateOne({ _id: room }, { $set: { url: url } }, { upsert: true })
+        })
         socket.on("sync", function (data) {
             var currentTime = data["playing"] ? new Date().getTime() - data["time"] + data["currentTime"] : data["currentTime"];
             //console.log("setting synced currentTime in room", room, currentTime)

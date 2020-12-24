@@ -1,11 +1,22 @@
 //DECLARE HEAD ELEMENT
 const head = document.head || document.getElementsByTagName("head")[0] || document.documentElement;
 
-//INJECT SOCKETIO SCRIPT
-const socketio = document.createElement("script");
-socketio.src = `https://unpkg.com/socket.io-client@3.0.1/dist/socket.io.min.js`;
-var socketid;
-head.insertBefore(socketio, head.lastChild);
+//GET PARAMETER FUNCTION
+
+/**
+ * 
+ * @param {String} name THE PARAMETER
+ * @param {URL} url THE URL STRING
+ */
+
+function getParameterByName(name, url) {
+    name = name.replace(/[\[\]]/g, '\\$&');
+    var regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)'),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, ' '));
+}
 
 //INJECT CSS
 const stylization = document.createElement("style");
@@ -94,6 +105,7 @@ stylization.innerHTML = `
     cursor: not-allowed;
 }
 .message-box {
+    margin: 0;
     margin-top: 4px;
     background-color: #1b1b1b1a;
     padding: 4px;
@@ -124,6 +136,7 @@ stylization.innerHTML = `
 }
 #playpausecontainer {
     display: flex;
+    flex-direction: row;
 }
 #play {
     margin-right: 4px;
@@ -142,6 +155,8 @@ var socket;
 var playing;
 var admin;
 var nosync;
+var url;
+var socketid;
 
 //COMPENSATION
 var compensation = 0.25;
@@ -156,7 +171,7 @@ console.log = function () {
 }
 
 //ACKNOWLEDGE SCRIPT INJECTION
-console.log("watch together script injected.")
+console.log("WATCH TOGETHER SCRIPT INJECTED.")
 
 //DEFINE PLAYING
 Object.defineProperty(HTMLMediaElement.prototype, "playing", {
@@ -197,10 +212,12 @@ function logstatus(log) {
 
 //DECLARE VIDEO ELEMENT
 const video = document.querySelectorAll("video")[document.querySelectorAll("video").length - 1];
-video.controls = false;
+if (video) {
+    video.controls = false;
+}
 
 function initsocket() {
-    var input = roomcode;
+    var input = roomcodeinput;
     var room = input.value;
     if (!room) {
         return
@@ -216,32 +233,33 @@ function initsocket() {
         input.disabled = true;
         connect.disabled = true;
         connect.innerText = "connected!";
-        logstatus("[SOCKET] joined room")
+        logstatus("[SOCKET] JOINED ROOM")
         pausebutton.disabled = false;
         playbutton.disabled = false;
     })
 
-    socket.on("disconnect", function() {
+    socket.on("disconnect", function () {
         socketid = null;
         input.disabled = false;
         connect.disabled = false;
         connect.innerText = "disconnected";
-        logstatus("[SOCKET] socket disconnected")
+        logstatus("[SOCKET] SOCKET DISCONNECTED")
         pausebutton.disabled = true;
         playbutton.disabled = true;
     })
 
     socket.on("count-update", function (data) {
         count.innerText = `connected: ${data.count}`;
-        logstatus("[COUNT] updating user count")
+        logstatus("[COUNT] UPDATING USER COUNT.")
     })
 
     socket.on("ping", console.log("pong"))
 
     socket.on("admin-mode", function (data) {
-        logstatus("[ADMIN] admin mode activated")
+        logstatus("[ADMIN] ADMIN MODE ACTIVATED 🎉")
         message.innerText = "you are admin!";
         admin = true;
+        socket.emit("admin-set-url", { url: window.location.origin + window.location.pathname + `?watchtogetherroomcode=${room}` })
         setInterval(function () {
             if (video.playing) {
                 var date = new Date();
@@ -252,29 +270,47 @@ function initsocket() {
         }, 1000)
     })
 
+    socket.on("set-url", function (data) {
+        var setbaseurl = data["url"].split(/\?/).splice(0, 1)[0];
+        var ogbaseurl = window.location.origin + window.location.pathname;
+        if (setbaseurl !== ogbaseurl) {
+            var navigatepermission = confirm(`[WATCHTOGETHER] THE ROOM YOU ARE REQUESTING TO JOIN IS LOCATED AT URL ${setbaseurl}. WOULD YOU LIKE TO NAVIGATE?`);
+            if (navigatepermission) {
+                message.innerText = "navigating to url";
+                window.location.replace(data["url"]);
+            } else {
+                message.innerText = "self-destructing";
+                console.log("USER DECLINED, ABORTING PROCESS")
+                settings.remove()
+                socket.disconnect();
+                document.querySelector("#inject-script").remove();
+            }
+        }
+    })
+
     socket.on("sync", function (data) {
         if (nosync) {
-            logstatus("[SYNC] cannot sync, no override")
+            logstatus("[SYNC] CANNOT SYNC, OVERRIDE")
             return
         }
         var currentdate = new Date();
         var currentTime = data["playing"] ? (currentdate.getTime() - data["time"]) / 1000 + data["currentTime"] : data["currentTime"];
-        console.log("sync incoming from admin", data);
-        console.log("calculated currentTime", currentTime, "actual currentTime", video.currentTime);
+        console.log("SYNC INCOMING FROM ADMIN", data);
+        console.log("CALCULATED CURRENTTIME", currentTime, "ACTUAL CURRENTTIME", video.currentTime);
         if (data["playing"] && !video.playing) {
             video.play();
-            logstatus("[SYNC] playing video")
+            logstatus("[SYNC] PLAYING VIDEO")
         } else if (!data["playing"] && video.playing) {
             video.pause();
-            logstatus("[SYNC] pausing video")
+            logstatus("[SYNC] PAUSING VIDEO")
         }
         if (Math.abs(currentTime - video.currentTime) > compensation) {
             if (Math.abs(currentTime - video.currentTime) > compensation * 2) {
                 video.currentTime = currentTime + compensation;
-                logstatus(`[SYNC] video offset above ${compensation * 2}, compensating by ${compensation} seconds`)
+                logstatus(`[SYNC] VIDEO OFFSET ABOVE ${compensation * 2}, COMPENSATING BY ${compensation} SECONDS`)
             } else {
                 video.currentTime = currentTime;
-                logstatus(`[SYNC] video offset by more than ${compensation} seconds`)
+                logstatus(`[SYNC] VIDEO OFFSET BY MORE THAN ${compensation} SECONDS`)
             }
         }
     })
@@ -290,14 +326,14 @@ function initsocket() {
     }
 
     video.onseeking = function (event) {
-        console.log("seeking new position");
+        console.log("ONSEEKING EVENT TRIGGERED, SEEKING NEW POSITION");
         console.log(video.currentTime);
         event.preventDefault();
         //socket.emit("seeking", { currentTime: video.currentTime })
     }
 
     video.onseeked = function (event) {
-        console.log("finished seeking");
+        console.log("ONSEEKED EVENT TRIGGERED");
         console.log(video.currentTime)
         event.preventDefault();
         //socket.emit("seeking", { currentTime: video.currentTime })
@@ -305,34 +341,34 @@ function initsocket() {
     }
 
     socket.on("seeking", function (data) {
-        console.log("another user is seeking", data)
+        console.log("ANOTHER USER IS SEEKING", data)
         video.currentTime = data.currentTime;
     })
 
     video.onloadeddata = function () {
-        logstatus("[READY] video is ready to play")
-        console.log("video data is intiailized. ready to play.");
+        logstatus("[READY] VIDEO IS READY TO PLAY")
+        console.log("VIDEO IS READY TO PLAY, INITIALIZED.");
         socket.emit("ready", { currentTime: video.currentTime })
     }
 
     socket.on("ready", function (data) {
-        console.log("another user is ready", data)
+        console.log("ANOTHER READY IS READY TO PLAY", data)
         //video.currentTime = data.currentTime;
     })
 
     video.onwaiting = function () {
-        console.log("video is waiting for load.");
+        console.log("VIDEO IS WAITING TO LOAD");
         socket.emit("waiting", { currentTime: video.currentTime })
     };
 
     socket.on("waiting", function (data) {
-        console.log("another user is waiting for load", data)
+        console.log("ANOTHER USER IS WAITING TO LOAD", data)
         //video.currentTime = data.currentTime;
     })
 
     video.onplay = function (event) {
         playing = true;
-        console.log("onplay triggered")
+        console.log("ONPLAY EVENT TRIGGERED")
         //event.preventDefault();
         //socket.emit("play", { currentTime: video.currentTime });
         //video.play();
@@ -340,66 +376,65 @@ function initsocket() {
     };
 
     socket.on("play", function (data) {
-        logstatus("[PLAY] another user is playing")
-        console.log("another user is playing", data)
+        logstatus("[PLAY] ANOTHER USER IS PLAYING")
+        console.log("ANOTHER USER IS PLAYING", data)
         video.pause();
         var offset = (new Date().getTime() - data["time"]) / 1000;
-        console.log("play offset calculated", offset)
+        console.log("PLAY OFFSET CALCULATED", offset)
         var currentTime = offset + data["currentTime"] + compensation;
         video.currentTime = currentTime;
         video.play();
-        console.log("video is now playing.");
+        console.log("VIDEO IS NOW PLAYING");
     })
 
     video.onpause = function (event) {
         playing = false;
-        console.log("onpause triggered")
+        console.log("ONPAUSE EVENT TRIGGERED")
         //event.preventDefault();
         //socket.emit("pause", { currentTime: video.currentTime });
         return
     }
 
     socket.on("pause", function (data) {
-        logstatus("[PAUSE] another user paused")
-        console.log("another user paused", data)
+        logstatus("[PAUSE] ANOTHER USED PAUSED")
+        console.log("ANOTHER USER PAUSED", data)
         video.pause();
         var currentTime = data["currentTime"];
         video.currentTime = currentTime;
-        console.log("video is now paused.");
+        console.log("VIDEO IS NOW PAUSED");
     })
 
     video.oncanplay = function () {
-        console.log("oncanplay event triggered")
+        console.log("ONCANPLAY EVENT TRIGGERED")
         //socket.emit("seeking", { currentTime: video.currentTime });
     }
 
     video.onplaying = function (event) {
         playing = true;
-        console.log("onplay triggered")
+        console.log("ONPLAY EVENT TRIGGERED")
         //event.preventDefault();
         //socket.emit("seeking", { currentTime: video.currentTime });
         return
     }
 
     video.onwaiting = function () {
-        console.log("onwaiting event triggered")
+        console.log("ONWAITING EVENT TRIGGERED")
     }
 
     video.onclick = function (event) {
         event.preventDefault()
         var currenttime = new Date();
         if (video.playing) {
-            logstatus("[PLAY] video is playing")
-            console.log("onclick, playing video")
+            logstatus("[PLAY] VIDEO IS PLAYING")
+            console.log("ONCLICK EVENT TRIGGERED, PLAYING VIDEO")
             socket.emit("play", { currentTime: video.currentTime, time: currenttime.getTime() });
             video.play();
         } else {
-            logstatus("[PAUSE] video is paused")
-            console.log("onclick, pausing video")
+            logstatus("[PAUSE] VIDEO IS PAUSED")
+            console.log("ONCLICK EVENT TRIGGERED, PAUSING VIDEO")
             socket.emit("pause", { currentTime: video.currentTime, time: currenttime.getTime() });
             video.pause();
         }
-        console.log("onclick event triggered", playing)
         return;
     }
 }
@@ -433,10 +468,10 @@ closebutton.onclick = function () {
 };
 closebutton.innerText = "close 🎄";
 
-const roomcode = document.createElement("input");
-roomcode.id = "watch-together-room";
-roomcode.placeholder = "room code";
-roomcode.onkeyup = function(event) {
+const roomcodeinput = document.createElement("input");
+roomcodeinput.id = "watch-together-room";
+roomcodeinput.placeholder = "room code";
+roomcodeinput.onkeyup = function (event) {
     if (event.keyCode === 13) {
         initsocket();
     }
@@ -461,7 +496,7 @@ playpausecontainer.insertBefore(pausebutton, playpausecontainer.lastChild);
 playpausecontainer.insertBefore(playbutton, playpausecontainer.lastChild);
 
 //APPEND BUTTONS TO DASHBOARD
-settings.insertBefore(roomcode, settings.lastChild);
+settings.insertBefore(roomcodeinput, settings.lastChild);
 settings.insertBefore(connect, settings.lastChild);
 settings.insertBefore(playpausecontainer, settings.lastChild);
 settings.insertBefore(count, settings.lastChild);
@@ -471,7 +506,7 @@ settings.insertBefore(closebutton, settings.lastChild);
 
 //INSERT SETTINGS DASHBOARD INTO BODY
 document.body.insertBefore(settings, document.body.firstChild);
-console.log("inserted settings dashboard")
+console.log("INSERTED SETTINGS DASHBOARD")
 
 //MAKE DRAGGABLE
 dragElement(settings);
@@ -506,4 +541,12 @@ function dragElement(element) {
     }
 }
 
-logstatus("[SETUP] setup complete ✨")
+const params = new URLSearchParams(window.location.search);
+const roomcode = params.get('watchtogetherroomcode');
+
+if (roomcode) {
+    roomcodeinput.value = roomcode;
+    initsocket();
+}
+
+logstatus("[SETUP] SETUP COMPLETE ✨")
