@@ -2,7 +2,6 @@
 const head = document.head || document.getElementsByTagName("head")[0] || document.documentElement;
 
 //GET PARAMETER FUNCTION
-
 /**
  * 
  * @param {String} name THE PARAMETER
@@ -37,8 +36,8 @@ stylization.innerHTML = `
     color: #fff;
     backdrop-filter: blur(4px);
     z-index: 9999999;
-    font-family: monospace !important;
-    font-size: 12px !important;
+    font-family: monospace;
+    font-size: 12px;
 }
 #watch-together-header {
     cursor: grab;
@@ -53,8 +52,9 @@ stylization.innerHTML = `
     display: block;
     font-weight: bold;
     color: #fff;
+    line-height: initial;
 }
-#watch-together-header p, a {
+#watch-together-header p, #watch-together-header a {
     margin: 0;
     margin-bottom: 8px;
     font-size: 12px;
@@ -64,25 +64,26 @@ stylization.innerHTML = `
     display: block;
     font-weight: normal;
     color: #fff;
+    line-height: initial;
 }
 #watch-together-settings button {
     margin-top: 4px;
     border-radius: 4px;
-    color: #1b1b1b !important;
+    color: #1b1b1b;
     font-family: monospace;
     border: none;
-    background-color: #fff !important;
+    background-color: #fff;
     font-size: 12px;
-    transition: all 0.5s cubic-bezier(0.23, 1, 0.320, 1) !important;
+    transition: all 0.5s cubic-bezier(0.23, 1, 0.320, 1);
     word-break: break-word;
 }
 #watch-together-settings button:disabled {
     margin-top: 4px;
     border-radius: 4px;
-    color: #1b1b1b1a !important;
+    color: #1b1b1b1a;
     font-family: monospace;
     border: none;
-    background-color: #ffffff1a !important;
+    background-color: #ffffff1a;
     font-size: 12px;
     cursor: not-allowed;
 }
@@ -91,10 +92,10 @@ stylization.innerHTML = `
     font-family: monospace;
     border-radius: 4px;
     border: none;
-    background-color: #fff !important;
-    color: #1b1b1b !important;
+    background-color: #fff;
+    color: #1b1b1b;
     font-size: 12px;
-    transition: all 0.5s cubic-bezier(0.23, 1, 0.320, 1) !important;
+    transition: all 0.5s cubic-bezier(0.23, 1, 0.320, 1);
 }
 #watch-together-room:disabled {
     padding: 4px;
@@ -157,6 +158,9 @@ var admin;
 var nosync;
 var url;
 var socketid;
+var mismatchurl;
+var navigateto;
+var autoredirect;
 
 //COMPENSATION
 var compensation = 0.25;
@@ -217,6 +221,7 @@ if (video) {
 }
 
 function initsocket() {
+
     var input = roomcodeinput;
     var room = input.value;
     if (!room) {
@@ -259,7 +264,7 @@ function initsocket() {
         logstatus("[ADMIN] ADMIN MODE ACTIVATED 🎉")
         message.innerText = "you are admin!";
         admin = true;
-        socket.emit("admin-set-url", { url: window.location.origin + window.location.pathname + `?watchtogetherroomcode=${room}` })
+        socket.emit("admin-set-url", { url: window.location.href.includes("?") ? window.location.href + `&watchtogetherroomcode=${room}` : window.location.origin + window.location.pathname + `?watchtogetherroomcode=${room}` })
         setInterval(function () {
             if (video.playing) {
                 var date = new Date();
@@ -268,29 +273,65 @@ function initsocket() {
                 //console.log("emitting sync", { time: date.getTime(), currentTime: video.currentTime, playing: video.playing })
             }
         }, 1000)
+        //LISTEN TO URL CHANGES
+        var oldurl = document.location.href;
+        var urlobserver = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                if (oldurl !== document.location.href) {
+                    oldurl = document.location.href;
+                    var params = new URLSearchParams(window.location.search);
+                    params.delete("watchtogetherroomcode");
+                    var search = params.toString();
+                    socket.emit("admin-set-url", { url: search ? window.location.origin + window.location.pathname + "?" + search + `&watchtogetherroomcode=${room}` : window.location.origin + window.location.pathname + `?watchtogetherroomcode=${room}` })
+                }
+            });
+        });
+
+        urlobserver.observe(document.querySelector("body"), {
+            childList: true,
+            subtree: true
+        });
     })
 
     socket.on("set-url", function (data) {
-        var setbaseurl = data["url"].split(/\?/).splice(0, 1)[0];
-        var ogbaseurl = window.location.origin + window.location.pathname;
+        //NEW INCOMING URL
+        var setbaseurl;
+        if (data["url"].split(/\?/).length === 2) {
+            var oldparams = new URLSearchParams(data["url"].split(/\?/)[1]);
+            oldparams.delete("watchtogetherroomcode");
+            var oldsearch = oldparams.toString();
+            setbaseurl = data["url"].split(/\?/)[0] + "?" + oldsearch;
+        } else {
+            setbaseurl = data["url"];
+        }
+        //OLD URL
+        var ogbaseurl;
+        var params = new URLSearchParams(window.location.search);
+        params.delete("watchtogetherroomcode");
+        var search = params.toString();
+        ogbaseurl = window.location.origin + window.location.pathname + "?" + search;
+        console.log("COMPARING OLD URL TO NEW URL", ogbaseurl, setbaseurl)
+        //COMPARE
         if (setbaseurl !== ogbaseurl) {
-            var navigatepermission = confirm(`[WATCHTOGETHER] THE ROOM YOU ARE REQUESTING TO JOIN IS LOCATED AT URL ${setbaseurl}. WOULD YOU LIKE TO NAVIGATE?`);
-            if (navigatepermission) {
-                message.innerText = "navigating to url";
-                window.location.replace(data["url"]);
-            } else {
-                message.innerText = "self-destructing";
-                console.log("USER DECLINED, ABORTING PROCESS")
-                settings.remove()
-                socket.disconnect();
-                document.querySelector("#inject-script").remove();
-            }
+            redirect.disabled = false;
+            message.innerText = "url received, press to navigate";
+            mismatchurl = true;
+            navigateto = data["url"];
+            return;
+            message.innerText = "self-destructing";
+            console.log("USER DECLINED, ABORTING PROCESS")
+            settings.remove()
+            socket.disconnect();
+            document.querySelector("#inject-script").remove();
         }
     })
 
     socket.on("sync", function (data) {
         if (nosync) {
             logstatus("[SYNC] CANNOT SYNC, OVERRIDE")
+            return
+        } else if (mismatchurl) {
+            logstatus("[SYNC] CANNOT SYNC, MISMATCH URL")
             return
         }
         var currentdate = new Date();
@@ -376,6 +417,10 @@ function initsocket() {
     };
 
     socket.on("play", function (data) {
+        if (mismatchurl) {
+            logstatus("[PLAY] MISMATCH URL, NOT PLAYING");
+            return
+        }
         logstatus("[PLAY] ANOTHER USER IS PLAYING")
         console.log("ANOTHER USER IS PLAYING", data)
         video.pause();
@@ -396,6 +441,10 @@ function initsocket() {
     }
 
     socket.on("pause", function (data) {
+        if (mismatchurl) {
+            logstatus("[PAUSE] MISMATCH URL, NOT PAUSING");
+            return
+        }
         logstatus("[PAUSE] ANOTHER USED PAUSED")
         console.log("ANOTHER USER PAUSED", data)
         video.pause();
@@ -437,15 +486,27 @@ function initsocket() {
         }
         return;
     }
+
+    window.onbeforeunload = function () {
+        socket.disconnect();
+    }
 }
 
 function play() {
+    if (mismatchurl) {
+        logstatus("[PLAY] MISMATCH URL, NOT PLAYING");
+        return
+    }
     var currenttime = new Date();
     socket.emit("play", { currentTime: video.currentTime, time: currenttime.getTime() });
     video.play();
 }
 
 function pause() {
+    if (mismatchurl) {
+        logstatus("[PAUSE] MISMATCH URL, NOT PAUSING");
+        return
+    }
     nosync = true;
     var currenttime = new Date();
     socket.emit("pause", { currentTime: video.currentTime, time: currenttime.getTime() });
@@ -492,6 +553,21 @@ pausebutton.innerText = "pause ⛄";
 pausebutton.id = "pause";
 pausebutton.disabled = true;
 
+const redirectlabel = document.createElement("p");
+redirectlabel.innerText = "auto-redirect?";
+
+const redirect = document.createElement("button");
+redirect.checked = false;
+redirect.onclick = function (event) {
+    if (navigateto) {
+        message.innerText = "navigating to url";
+        window.location.replace(navigateto);
+    }
+};
+redirect.innerText = "redirect 🔃";
+redirect.id = "redirect";
+redirect.disabled = true;
+
 playpausecontainer.insertBefore(pausebutton, playpausecontainer.lastChild);
 playpausecontainer.insertBefore(playbutton, playpausecontainer.lastChild);
 
@@ -502,6 +578,8 @@ settings.insertBefore(playpausecontainer, settings.lastChild);
 settings.insertBefore(count, settings.lastChild);
 settings.insertBefore(message, settings.lastChild);
 settings.insertBefore(videostatus, settings.lastChild);
+//settings.insertBefore(redirectlabel, settings.lastChild); NO LABEL, REMOVED CHECKBOX
+settings.insertBefore(redirect, settings.lastChild);
 settings.insertBefore(closebutton, settings.lastChild);
 
 //INSERT SETTINGS DASHBOARD INTO BODY
@@ -543,6 +621,7 @@ function dragElement(element) {
 
 const params = new URLSearchParams(window.location.search);
 const roomcode = params.get('watchtogetherroomcode');
+const redirectparam = params.get('watchtogetherredirect');
 
 if (roomcode) {
     roomcodeinput.value = roomcode;

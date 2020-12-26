@@ -1,6 +1,6 @@
 {
     "name": "watch together",
-    "version": "7.0",
+    "version": "9.0",
     "description": "watch movies together in real time! created with <3 by raymond wang",
     "manifest_version": 2,
     "content_scripts": [
